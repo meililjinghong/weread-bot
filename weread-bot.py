@@ -964,9 +964,8 @@ class ConfigManager:
             ))
 
         # Server酱³
-        if os.getenv("SERVERCHAN3_UID") and os.getenv("SERVERCHAN3_SENDKEY"):
+        if os.getenv("SERVERCHAN3_SENDKEY"):
             serverchan3_config = {
-                "uid": os.getenv("SERVERCHAN3_UID"),
                 "sendkey": os.getenv("SERVERCHAN3_SENDKEY")
             }
             if os.getenv("SERVERCHAN3_TAGS"):
@@ -2069,14 +2068,13 @@ class NotificationService:
 
     def _send_serverchan3(self, message: str, config: Dict[str, Any]) -> bool:
         """发送Server酱³通知"""
-        if not config.get("uid") or not config.get("sendkey"):
-            logging.error("❌ Server酱³ UID或SendKey未配置")
+        if not config.get("sendkey"):
+            logging.error("❌ Server酱³ SendKey未配置")
             return False
 
         # 构建Server酱³ API URL
-        uid = config["uid"]
         sendkey = config["sendkey"]
-        url = f"https://{uid}.push.ft07.com/send/{sendkey}.send"
+        url = f"https://sctapi.ftqq.com/{sendkey}.send"
 
         # 准备请求数据
         data = {
@@ -2428,51 +2426,22 @@ class WeReadApplication:
         cls, instance, all_session_stats, successful_users, failed_users
     ):
         """生成多用户会话总结"""
-        total_users = len(instance.config.users)
-        successful_count = len(successful_users)
-        failed_count = len(failed_users)
+        # 只发送注销多用户自动阅读报告的通知
+        notification_msg = "⚠️ 多用户自动阅读报告已注销"
+        
+        # 记录日志
+        logging.info(notification_msg)
 
-        # 计算总体统计
-        total_duration = sum(
-            stats.actual_duration_seconds for _, stats in all_session_stats
-        )
-        total_reads = sum(
-            stats.successful_reads for _, stats in all_session_stats
-        )
-        total_failed_reads = sum(
-            stats.failed_reads for _, stats in all_session_stats
-        )
-
-        summary = f"""🎭 多用户阅读会话总结
-
-👥 用户统计:
-  📊 总用户数: {total_users}
-  ✅ 成功用户: {successful_count} ({', '.join(successful_users)
-                                       if successful_users else '无'})
-  ❌ 失败用户: {failed_count} ({', '.join(failed_users) if failed_users else '无'})
-
-📖 阅读统计:
-  ⏱️ 总阅读时长: {total_duration // 60}分{total_duration % 60}秒
-  ✅ 成功请求: {total_reads}次
-  ❌ 失败请求: {total_failed_reads}次
-  📈 整体成功率: {(total_reads / (total_reads + total_failed_reads) * 100)
-                    if (total_reads + total_failed_reads) > 0 else 0:.1f}%
-
-🎉 多用户阅读任务完成！"""
-
-        logging.info("📊 多用户会话总结:")
-        logging.info(summary)
-
-        # 发送总结通知
+        # 发送通知
         if (instance.config.notification.enabled and
                 instance.config.notification.include_statistics):
             try:
                 notification_service = NotificationService(
                     instance.config.notification
                 )
-                await notification_service.send_notification_async(summary)
+                await notification_service.send_notification_async(notification_msg)
             except Exception as e:
-                logging.error(f"❌ 多用户总结通知发送失败: {e}")
+                logging.error(f"❌ 通知发送失败: {e}")
 
 
 class WeReadSessionManager:
@@ -2840,9 +2809,11 @@ class WeReadSessionManager:
             self.session_stats.end_time = datetime.now()
             logging.info("🎉 阅读任务完成！")
 
-            # 发送通知
+            # 在多用户模式下，不发送单个用户的通知，只在总结时发送一条
+            # 只有在单用户模式下才发送通知
             if (self.config.notification.enabled and
-                    self.config.notification.include_statistics):
+                    self.config.notification.include_statistics and
+                    not self.user_config):  # 只有当没有用户配置时（单用户模式）才发送
                 await self.notification_service.send_notification_async(
                     self.session_stats.get_statistics_summary()
                 )
