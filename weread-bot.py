@@ -2426,22 +2426,55 @@ class WeReadApplication:
         cls, instance, all_session_stats, successful_users, failed_users
     ):
         """生成多用户会话总结"""
-        # 只发送注销多用户自动阅读报告的通知
-        notification_msg = "⚠️ 多用户自动阅读报告已注销"
-        
-        # 记录日志
-        logging.info(notification_msg)
+        # 现在默认是多用户配置，将通知逻辑对调
+        # 在多用户模式下发送详细报告，在单用户模式下发送简单通知
+        if instance.config.users and len(instance.config.users) > 0:  # 多用户模式
+            # 计算总体统计
+            total_duration = sum(
+                stats.actual_duration_seconds for _, stats in all_session_stats
+            )
+            total_reads = sum(
+                stats.successful_reads for _, stats in all_session_stats
+            )
+            total_failed_reads = sum(
+                stats.failed_reads for _, stats in all_session_stats
+            )
 
-        # 发送通知
-        if (instance.config.notification.enabled and
-                instance.config.notification.include_statistics):
-            try:
-                notification_service = NotificationService(
-                    instance.config.notification
-                )
-                await notification_service.send_notification_async(notification_msg)
-            except Exception as e:
-                logging.error(f"❌ 通知发送失败: {e}")
+            # 生成详细的多用户报告
+            summary = f"""🎭 多用户阅读会话总结
+
+👥 用户统计:
+  📊 总用户数: {len(instance.config.users)}
+  ✅ 成功用户: {len(successful_users)} ({', '.join(successful_users)
+                                       if successful_users else '无'})
+  ❌ 失败用户: {len(failed_users)} ({', '.join(failed_users) if failed_users else '无'})
+
+📖 阅读统计:
+  ⏱️ 总阅读时长: {total_duration // 60}分{total_duration % 60}秒
+  ✅ 成功请求: {total_reads}次
+  ❌ 失败请求: {total_failed_reads}次
+  📈 整体成功率: {(total_reads / (total_reads + total_failed_reads) * 100)
+                    if (total_reads + total_failed_reads) > 0 else 0:.1f}%
+
+🎉 多用户阅读任务完成！"""
+
+            # 记录日志
+            logging.info("📊 多用户会话总结:")
+            logging.info(summary)
+
+            # 发送通知
+            if (instance.config.notification.enabled and
+                    instance.config.notification.include_statistics):
+                try:
+                    notification_service = NotificationService(
+                        instance.config.notification
+                    )
+                    await notification_service.send_notification_async(summary)
+                except Exception as e:
+                    logging.error(f"❌ 多用户总结通知发送失败: {e}")
+        else:  # 单用户模式，发送简单通知
+            notification_msg = "⚠️ 单用户自动阅读报告已完成"
+            logging.info(notification_msg)
 
 
 class WeReadSessionManager:
@@ -2809,11 +2842,11 @@ class WeReadSessionManager:
             self.session_stats.end_time = datetime.now()
             logging.info("🎉 阅读任务完成！")
 
-            # 在多用户模式下，不发送单个用户的通知，只在总结时发送一条
-            # 只有在单用户模式下才发送通知
+            # 现在默认是多用户配置，将通知逻辑对调
+            # 在单用户模式下发送完整统计报告，在多用户模式下不发送单个用户通知
             if (self.config.notification.enabled and
                     self.config.notification.include_statistics and
-                    not self.user_config):  # 只有当没有用户配置时（单用户模式）才发送
+                    not self.user_config):  # 只有当没有用户配置时（单用户模式）才发送完整统计报告
                 await self.notification_service.send_notification_async(
                     self.session_stats.get_statistics_summary()
                 )
